@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Breadboard Wire Bender & Circuit Designer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0b0f19; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        
+        pre::-webkit-scrollbar { width: 8px; height: 8px; }
+        pre::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+        pre::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        
+        .color-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.15s ease, border-color 0.15s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+        .color-dot:hover { transform: scale(1.2); }
+        .color-dot.active { border: 2px solid #ffffff; transform: scale(1.2); box-shadow: 0 0 10px rgba(255,255,255,0.8); }
+
+        .mode-btn {
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(30, 41, 59, 0.8);
+            color: #94a3b8;
+        }
+        .mode-btn:hover { background: rgba(51, 65, 85, 0.9); color: #f8fafc; }
+        .mode-btn.active {
+            background: #2563eb;
+            color: #ffffff;
+            border-color: #60a5fa;
+            box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+        }
+
+        .comp-card {
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .comp-card:hover {
+            background: rgba(51, 65, 85, 0.9);
+            border-color: #38bdf8;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+    </style>
+</head>
+<body class="text-slate-100">
+
+    <!-- WebGL Canvas Container -->
+    <div id="canvas-container" class="w-full h-full absolute inset-0"></div>
+
+    <!-- UI Overlay Top Left -->
+    <div class="absolute top-4 left-4 z-10 flex flex-col gap-3 pointer-events-auto">
+        <!-- Mode Selector Toolbar -->
+        <div class="glass-panel p-2 rounded-xl shadow-2xl flex items-center gap-2">
+            <button id="mode-wire" class="mode-btn active flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Wire Tool
+            </button>
+            <button id="mode-comp" class="mode-btn flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                Components...
+            </button>
+            <button id="mode-select" class="mode-btn flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"/></svg>
+                Select / Edit
+            </button>
+        </div>
+
+        <!-- Dynamic Status Banner -->
+        <div id="status-card" class="glass-panel px-4 py-2.5 rounded-lg text-xs text-slate-300 flex items-center justify-between shadow-lg max-w-sm">
+            <span id="status-text">Click any hole to start a wire</span>
+            <span id="status-badge" class="hidden ml-2 px-2 py-0.5 bg-blue-500/30 text-blue-300 rounded font-mono text-[10px] font-bold">Y: 1.0</span>
+        </div>
+
+        <!-- MID-WIRE ACTIVE DRAWING TOOLBAR -->
+        <div id="midwire-toolbar" class="glass-panel p-2.5 rounded-xl shadow-2xl hidden flex items-center gap-2 max-w-sm">
+            <button id="btn-wire-stepback" class="py-1.5 px-3 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 rounded-lg text-amber-200 text-xs font-semibold transition flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                Step Back
+            </button>
+            <button id="btn-wire-cancel" class="py-1.5 px-3 bg-rose-900/40 hover:bg-rose-900/70 border border-rose-700/50 rounded-lg text-rose-300 text-xs font-semibold transition flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                Cancel Wire
+            </button>
+        </div>
+    </div>
+
+    <!-- Controls Panel Right -->
+    <div class="absolute top-4 right-4 z-10 w-80 flex flex-col gap-3 pointer-events-auto">
+        <!-- Palette & Color Picker -->
+        <div class="glass-panel p-4 rounded-xl shadow-2xl space-y-3">
+            <div class="flex items-center justify-between">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Color Palette</label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="custom-hex-picker" value="#3b82f6" class="w-6 h-6 rounded cursor-pointer border-0 bg-transparent">
+                    <button id="btn-add-color" class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600/50 rounded text-[10px] font-bold transition">
+                        + Add Color
+                    </button>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap" id="color-palette"></div>
+        </div>
+
+        <!-- Active Component Panel -->
+        <div id="active-comp-panel" class="glass-panel p-3 rounded-xl shadow-2xl hidden flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <div id="active-comp-icon" class="p-2 bg-blue-500/20 border border-blue-400/30 rounded-lg text-blue-300 font-bold text-xs">
+                    IC14
+                </div>
+                <div>
+                    <div class="text-xs font-bold text-white" id="active-comp-name">DIP-14 IC</div>
+                    <div class="text-[10px] text-slate-400" id="active-comp-desc">Straddles Row E & F</div>
+                </div>
+            </div>
+            <button id="btn-change-comp" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-blue-400 border border-slate-600/50 rounded-lg transition font-medium">
+                Change...
+            </button>
+        </div>
+
+        <!-- Selected Object Inspector -->
+        <div id="inspector-panel" class="glass-panel p-4 rounded-xl shadow-2xl hidden space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-700/60 pb-2">
+                <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Inspector</span>
+                <span id="inspect-target-type" class="text-xs font-mono text-blue-400">Wire #1</span>
+            </div>
+
+            <div class="space-y-2 text-xs">
+                <button id="btn-inspect-rotate" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-slate-200 font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Rotate 180° In-Place
+                </button>
+                <button id="btn-inspect-move" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-slate-200 font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    Move Component
+                </button>
+                <button id="btn-inspect-stepback" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-slate-200 font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                    Go One Step Back / Extend
+                </button>
+                <button id="btn-inspect-color" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-slate-200 font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                    Apply Active Color
+                </button>
+                <button id="btn-inspect-delete" class="w-full py-2 px-3 bg-rose-950/50 hover:bg-rose-900/80 border border-rose-800/60 rounded-lg text-rose-300 font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    Delete Selected
+                </button>
+            </div>
+        </div>
+
+        <!-- Global Actions & Code Export -->
+        <div class="glass-panel p-4 rounded-xl shadow-2xl space-y-3">
+            <button id="btn-clear-all" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 border border-slate-600/50 rounded-lg text-xs font-medium transition flex items-center justify-center gap-2 text-slate-300">
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Clear Entire Board
+            </button>
+
+            <button id="btn-generate-code" class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-lg text-sm shadow-lg shadow-blue-500/25 transition transform active:scale-95 flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                Generate C Driver Code
+            </button>
+        </div>
+
+        <!-- Object Count Summary -->
+        <div class="glass-panel p-3 rounded-xl shadow-2xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex justify-between items-center">
+                <span>Circuit Elements</span>
+                <span id="element-count-badge" class="px-2 py-0.5 bg-slate-800 rounded text-white font-mono text-[10px]">0 Wires | 0 Comps</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Component Selection Catalog -->
+    <div id="comp-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-700/80 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-blue-600/30 border border-blue-500/40 rounded-lg text-blue-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-bold text-white">Component Catalog</h2>
+                        <p class="text-xs text-slate-400">Choose ICs, passive components, semiconductors, or pins</p>
+                    </div>
+                </div>
+                <button id="btn-close-comp-modal" class="text-slate-400 hover:text-white p-1.5 rounded-lg transition hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="p-6 grid grid-cols-2 gap-3.5 overflow-y-auto">
+                <div class="comp-card flex items-start gap-3" data-type="IC14" data-name="DIP-14 IC" data-desc="14-Pin IC (Straddles Row E & F)">
+                    <div class="p-2 bg-slate-800 rounded-lg text-blue-400 font-bold font-mono text-xs border border-slate-700">IC14</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">DIP-14 IC</div>
+                        <div class="text-xs text-slate-400 mt-0.5">14-Pin DIP Package. Straddles center trough.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="IC8" data-name="DIP-8 IC" data-desc="8-Pin IC (Straddles Row E & F)">
+                    <div class="p-2 bg-slate-800 rounded-lg text-indigo-400 font-bold font-mono text-xs border border-slate-700">IC8</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">DIP-8 IC</div>
+                        <div class="text-xs text-slate-400 mt-0.5">8-Pin DIP Package (Op-Amps, 555 Timers).</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="IC16" data-name="DIP-16 IC" data-desc="16-Pin IC (Straddles Row E & F)">
+                    <div class="p-2 bg-slate-800 rounded-lg text-purple-400 font-bold font-mono text-xs border border-slate-700">IC16</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">DIP-16 IC</div>
+                        <div class="text-xs text-slate-400 mt-0.5">16-Pin DIP Package (Shift Registers, Logic).</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="RESISTOR" data-name="Resistor" data-desc="Axial 4-Band 1/4W Resistor">
+                    <div class="p-2 bg-slate-800 rounded-lg text-amber-400 font-bold font-mono text-xs border border-slate-700">RES</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Resistor</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Beige axial 4-band resistor with wire legs.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="DIODE" data-name="Diode" data-desc="Axial Signal/Rectifier Diode">
+                    <div class="p-2 bg-slate-800 rounded-lg text-rose-400 font-bold font-mono text-xs border border-slate-700">DIO</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Diode</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Black body with silver cathode line band.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="LED" data-name="LED" data-desc="Radial 5mm Dome LED">
+                    <div class="p-2 bg-slate-800 rounded-lg text-emerald-400 font-bold font-mono text-xs border border-slate-700">LED</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">LED</div>
+                        <div class="text-xs text-slate-400 mt-0.5">5mm translucent light dome. Uses active color.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="CAP_CERAMIC" data-name="Ceramic Cap" data-desc="Disc Ceramic Capacitor">
+                    <div class="p-2 bg-slate-800 rounded-lg text-orange-400 font-bold font-mono text-xs border border-slate-700">CCAP</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Ceramic Capacitor</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Classic orange disc ceramic cap.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="CAP_ELEC" data-name="Electrolytic Cap" data-desc="Polarized Can Capacitor">
+                    <div class="p-2 bg-slate-800 rounded-lg text-cyan-400 font-bold font-mono text-xs border border-slate-700">ECAP</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Electrolytic Cap</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Metallic blue canister with white stripe.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="TRANSISTOR" data-name="TO-92 Transistor" data-desc="3-Pin Semiconductor">
+                    <div class="p-2 bg-slate-800 rounded-lg text-sky-400 font-bold font-mono text-xs border border-slate-700">TO92</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Transistor (TO-92)</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Solid black D-shaped 3-lead transistor.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card flex items-start gap-3" data-type="BUTTON" data-name="Tactile Switch" data-desc="4-Pin Momentary Button">
+                    <div class="p-2 bg-slate-800 rounded-lg text-teal-400 font-bold font-mono text-xs border border-slate-700">BTN</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Tactile Switch</div>
+                        <div class="text-xs text-slate-400 mt-0.5">4-pin switch spanning Rows E & F across 2 cols.</div>
+                    </div>
+                </div>
+
+                <div class="comp-card col-span-2 flex items-start gap-3" data-type="PIN" data-name="Header Pin" data-desc="Standalone 0.1-inch Header Pin">
+                    <div class="p-2 bg-slate-800 rounded-lg text-yellow-400 font-bold font-mono text-xs border border-slate-700">PIN</div>
+                    <div>
+                        <div class="font-bold text-sm text-slate-100">Empty Header Pin</div>
+                        <div class="text-xs text-slate-400 mt-0.5">Gold/silver 0.1" pin centered in 1 hole.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 bg-slate-900/60 border-t border-slate-800 text-right">
+                <button id="btn-cancel-comp" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 rounded-lg transition">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: C Code Output -->
+    <div id="code-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-700/80 overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+                    <span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+                    <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+                    <h3 class="ml-2 font-mono text-sm font-bold text-slate-200">wire_driver_program.c</h3>
+                </div>
+                <button id="btn-close-code-modal" class="text-slate-400 hover:text-white p-1 rounded-lg transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1 bg-slate-950/90">
+                <pre id="c-code-container" class="font-mono text-xs text-emerald-400 leading-relaxed"></pre>
+            </div>
+            <div class="p-4 bg-slate-900/80 border-t border-slate-800 flex items-center justify-between">
+                <span class="text-xs text-slate-400">Microcontroller / Arduino G-Code Driver Output</span>
+                <button id="btn-copy-code" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                    Copy to Clipboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold text-emerald-300 border border-emerald-500/30 transition-all duration-300 opacity-0 pointer-events-none transform translate-y-4">
+        Message
+    </div>
+
+    <!-- Three.js & Controls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- CONSTANTS & GEOMETRY SPECS ---
+        const PITCH = 1.0; 
+        const WIRE_RADIUS = 0.14;
+        const HOLE_RADIUS = 0.18;
+        
+        const BOARD_BOUNDS = {
+            minX: -31.0,
+            maxX: 31.0,
+            minZ: -10.5,
+            maxZ: 10.5
+        };
+
+        const POWER_RAIL_GAPS = [6, 12, 18, 24, 30, 31, 37, 43, 49, 55];
+
+        let CURRENT_MODE = 'WIRE'; // 'WIRE', 'COMPONENT', 'SELECT'
+        let ACTIVE_COMP_TYPE = 'IC14'; 
+        let ACTIVE_COMP_NAME = 'DIP-14 IC';
+        let ACTIVE_COMP_DESC = '14-Pin IC (Straddles Row E & F)';
+
+        const COLOR_PALETTE = [
+            { name: 'Red', hex: 0xef4444, css: '#ef4444' },
+            { name: 'Blue', hex: 0x3b82f6, css: '#3b82f6' },
+            { name: 'Green', hex: 0x10b981, css: '#10b981' },
+            { name: 'Yellow', hex: 0xeab308, css: '#eab308' },
+            { name: 'Orange', hex: 0xf97316, css: '#f97316' },
+            { name: 'White', hex: 0xf8fafc, css: '#f8fafc' },
+            { name: 'Black', hex: 0x1e293b, css: '#1e293b' }
+        ];
+        let activeColorIndex = 0;
+
+        const ROW_CONFIG = [
+            { key: 'RAIL_TOP_MINUS', label: '-', zOffset: -9.0, isRail: true },
+            { key: 'RAIL_TOP_PLUS',  label: '+', zOffset: -8.0, isRail: true },
+            
+            { key: 'A', label: 'A', zOffset: -5.0 },
+            { key: 'B', label: 'B', zOffset: -4.0 },
+            { key: 'C', label: 'C', zOffset: -3.0 },
+            { key: 'D', label: 'D', zOffset: -2.0 },
+            { key: 'E', label: 'E', zOffset: -1.0 },
+
+            { key: 'F', label: 'F', zOffset: 1.0 },
+            { key: 'G', label: 'G', zOffset: 2.0 },
+            { key: 'H', label: 'H', zOffset: 3.0 },
+            { key: 'I', label: 'I', zOffset: 4.0 },
+            { key: 'J', label: 'J', zOffset: 5.0 },
+
+            { key: 'RAIL_BOT_PLUS',  label: '+', zOffset: 8.0, isRail: true },
+            { key: 'RAIL_BOT_MINUS', label: '-', zOffset: 9.0, isRail: true }
+        ];
+
+        // Camera Drag Disambiguation
+        let mouseDownPos = { x: 0, y: 0 };
+        let isDraggingCamera = false;
+
+        // --- HOLE OCCUPANCY TRACKING SYSTEM ---
+        const occupiedHoles = new Map(); // Key: "col_rowKey", Value: { type: 'WIRE'|'COMPONENT', label: string, ref: object }
+
+        function getHoleKey(col, rowKey) {
+            return `${col}_${rowKey}`;
+        }
+
+        function getHoleKeyFromPos(pos) {
+            for (let i = 0; i < holesArray.length; i++) {
+                const h = holesArray[i];
+                if (Math.abs(h.userData.gridPos.x - pos.x) < 0.2 && Math.abs(h.userData.gridPos.z - pos.z) < 0.2) {
+                    return getHoleKey(h.userData.col, h.userData.rowKey);
+                }
+            }
+            return null;
+        }
+
+        function rebuildOccupiedHoles() {
+            occupiedHoles.clear();
+
+            // 1. Finished Wires
+            finishedWires.forEach((w, idx) => {
+                const label = `Wire #${idx + 1}`;
+                if (w.points.length > 0) {
+                    const startKey = getHoleKeyFromPos(w.points[0]);
+                    if (startKey) occupiedHoles.set(startKey, { type: 'WIRE', label, ref: w });
+
+                    const endPt = w.points[w.points.length - 1];
+                    if (Math.abs(endPt.y) < 0.2) {
+                        const endKey = getHoleKeyFromPos(endPt);
+                        if (endKey) occupiedHoles.set(endKey, { type: 'WIRE', label, ref: w });
+                    }
+                }
+            });
+
+            // 2. Active Wire (Start hole)
+            if (activeWire && activeWire.points.length > 0) {
+                const startKey = getHoleKeyFromPos(activeWire.points[0]);
+                if (startKey) occupiedHoles.set(startKey, { type: 'WIRE', label: 'Active Wire', ref: activeWire });
+            }
+
+            // 3. Placed Components
+            placedComponents.forEach((c) => {
+                const label = `${c.type} Component`;
+                if (['IC14', 'IC8', 'IC16'].includes(c.type)) {
+                    let pinsPerSide = 7;
+                    if (c.type === 'IC8') pinsPerSide = 4;
+                    if (c.type === 'IC16') pinsPerSide = 8;
+
+                    const startCol = Math.round(c.pos.x / PITCH + 30.5 - (pinsPerSide - 1) / 2);
+                    for (let col = startCol; col < startCol + pinsPerSide; col++) {
+                        occupiedHoles.set(getHoleKey(col, 'E'), { type: 'COMPONENT', label, ref: c });
+                        occupiedHoles.set(getHoleKey(col, 'F'), { type: 'COMPONENT', label, ref: c });
+                    }
+                }
+                else if (c.type === 'BUTTON') {
+                    const cCol = Math.round(c.pos.x / PITCH + 30.0);
+                    [cCol, cCol + 1].forEach(col => {
+                        occupiedHoles.set(getHoleKey(col, 'E'), { type: 'COMPONENT', label, ref: c });
+                        occupiedHoles.set(getHoleKey(col, 'F'), { type: 'COMPONENT', label, ref: c });
+                    });
+                }
+                else if (c.type === 'TRANSISTOR') {
+                    const key = getHoleKeyFromPos(c.pos);
+                    if (key) {
+                        const parts = key.split('_');
+                        const col = parseInt(parts[0]);
+                        const rowKey = parts.slice(1).join('_');
+                        [col - 1, col, col + 1].forEach(cNum => {
+                            occupiedHoles.set(getHoleKey(cNum, rowKey), { type: 'COMPONENT', label, ref: c });
+                        });
+                    }
+                }
+                else if (c.type === 'PIN') {
+                    const key = getHoleKeyFromPos(c.pos);
+                    if (key) occupiedHoles.set(key, { type: 'COMPONENT', label, ref: c });
+                }
+                else if (c.p1 && c.p2) {
+                    const k1 = getHoleKeyFromPos(c.p1);
+                    const k2 = getHoleKeyFromPos(c.p2);
+                    if (k1) occupiedHoles.set(k1, { type: 'COMPONENT', label, ref: c });
+                    if (k2) occupiedHoles.set(k2, { type: 'COMPONENT', label, ref: c });
+                }
+            });
+        }
+
+        function getComponentTargetHoles(type, pos, p1, p2) {
+            const targetKeys = [];
+            if (['IC14', 'IC8', 'IC16'].includes(type)) {
+                let pinsPerSide = 7;
+                if (type === 'IC8') pinsPerSide = 4;
+                if (type === 'IC16') pinsPerSide = 8;
+
+                if (pos) {
+                    const startCol = Math.round(pos.x / PITCH + 30.5 - (pinsPerSide - 1) / 2);
+                    for (let col = startCol; col < startCol + pinsPerSide; col++) {
+                        targetKeys.push(getHoleKey(col, 'E'));
+                        targetKeys.push(getHoleKey(col, 'F'));
+                    }
+                }
+            }
+            else if (type === 'BUTTON') {
+                if (pos) {
+                    const cCol = Math.round(pos.x / PITCH + 30.0);
+                    [cCol, cCol + 1].forEach(col => {
+                        targetKeys.push(getHoleKey(col, 'E'));
+                        targetKeys.push(getHoleKey(col, 'F'));
+                    });
+                }
+            }
+            else if (type === 'TRANSISTOR') {
+                if (pos) {
+                    const key = getHoleKeyFromPos(pos);
+                    if (key) {
+                        const parts = key.split('_');
+                        const col = parseInt(parts[0]);
+                        const rowKey = parts.slice(1).join('_');
+                        [col - 1, col, col + 1].forEach(cNum => {
+                            targetKeys.push(getHoleKey(cNum, rowKey));
+                        });
+                    }
+                }
+            }
+            else if (type === 'PIN') {
+                if (pos) {
+                    const key = getHoleKeyFromPos(pos);
+                    if (key) targetKeys.push(key);
+                }
+            }
+            else if (p1 || p2) {
+                if (p1) {
+                    const k1 = getHoleKeyFromPos(p1);
+                    if (k1) targetKeys.push(k1);
+                }
+                if (p2) {
+                    const k2 = getHoleKeyFromPos(p2);
+                    if (k2) targetKeys.push(k2);
+                }
+            }
+            return targetKeys;
+        }
+
+        function isAnyHoleOccupied(holeKeys) {
+            for (let k of holeKeys) {
+                if (occupiedHoles.has(k)) return true;
+            }
+            return false;
+        }
+
+        // --- THREE.JS SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b0f19);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 32, 28);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.02;
+        controls.minDistance = 5;
+        controls.maxDistance = 90;
+        controls.target.set(0, 0, 0);
+
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            mouseDownPos = { x: e.clientX, y: e.clientY };
+            isDraggingCamera = false;
+        });
+
+        renderer.domElement.addEventListener('pointerup', (e) => {
+            const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
+            if (dist > 5) isDraggingCamera = true;
+        });
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.35);
+        fillLight.position.set(-20, 20, -20);
+        scene.add(fillLight);
+
+        const boardGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        // --- BREADBOARD TEXTURE & MESH ---
+        function createBreadboardTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048; canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#f3eedf';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const mapZToY = (z) => ((z + 11) / 22) * canvas.height;
+            const mapXToX = (col) => ((col - 0.5) / 60) * canvas.width;
+
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#2563eb';
+            ctx.beginPath();
+            ctx.moveTo(mapXToX(1), mapZToY(-9.6)); ctx.lineTo(mapXToX(60), mapZToY(-9.6));
+            ctx.moveTo(mapXToX(1), mapZToY(9.6));  ctx.lineTo(mapXToX(60), mapZToY(9.6));
+            ctx.stroke();
+
+            ctx.strokeStyle = '#dc2626';
+            ctx.beginPath();
+            ctx.moveTo(mapXToX(1), mapZToY(-7.4)); ctx.lineTo(mapXToX(60), mapZToY(-7.4));
+            ctx.moveTo(mapXToX(1), mapZToY(7.4));  ctx.lineTo(mapXToX(60), mapZToY(7.4));
+            ctx.stroke();
+
+            ctx.fillStyle = '#475569';
+            ctx.font = 'bold 22px system-ui';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+            for (let c = 1; c <= 60; c++) {
+                if (c === 1 || c % 5 === 0) {
+                    const xPx = mapXToX(c);
+                    ctx.fillText(c.toString(), xPx, mapZToY(-6.1));
+                    ctx.fillText(c.toString(), xPx, mapZToY(6.1));
+                }
+            }
+
+            ctx.font = 'bold 24px system-ui';
+            ROW_CONFIG.forEach(row => {
+                if (!row.isRail) {
+                    const yPx = mapZToY(row.zOffset);
+                    ctx.fillText(row.label, mapXToX(0.2), yPx);
+                    ctx.fillText(row.label, mapXToX(60.8), yPx);
+                }
+            });
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.anisotropy = 16;
+            return texture;
+        }
+
+        const holesArray = [];
+        const holeMatDefault = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.8 });
+        const holeMatHover = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
+        const holeMatOccupied = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+        function buildBreadboard() {
+            const boardGroup = new THREE.Group();
+
+            const boardWidth = 63.0, boardDepth = 22.0, boardHeight = 1.2;
+            const bodyGeo = new THREE.BoxGeometry(boardWidth, boardHeight, boardDepth);
+            const topTexture = createBreadboardTexture();
+            
+            const sideMat = new THREE.MeshStandardMaterial({ color: 0xede8d8, roughness: 0.6 });
+            const topMat = new THREE.MeshStandardMaterial({ map: topTexture, roughness: 0.5 });
+
+            const materials = [sideMat, sideMat, topMat, sideMat, sideMat, sideMat];
+            const bodyMesh = new THREE.Mesh(bodyGeo, materials);
+            bodyMesh.position.y = -boardHeight / 2;
+            bodyMesh.receiveShadow = true;
+            boardGroup.add(bodyMesh);
+
+            const grooveGeo = new THREE.BoxGeometry(boardWidth + 0.1, 0.4, 1.2);
+            const grooveMat = new THREE.MeshStandardMaterial({ color: 0xd6ceb8, roughness: 0.8 });
+            const grooveMesh = new THREE.Mesh(grooveGeo, grooveMat);
+            grooveMesh.position.set(0, -0.2, 0);
+            boardGroup.add(grooveMesh);
+
+            const holeGeo = new THREE.CylinderGeometry(HOLE_RADIUS, HOLE_RADIUS, 0.05, 12);
+
+            for (let col = 1; col <= 60; col++) {
+                const xPos = (col - 30.5) * PITCH;
+                ROW_CONFIG.forEach(row => {
+                    if (row.isRail && POWER_RAIL_GAPS.includes(col)) return;
+
+                    const zPos = row.zOffset * PITCH;
+                    const holeMesh = new THREE.Mesh(holeGeo, holeMatDefault);
+                    holeMesh.position.set(xPos, 0.01, zPos);
+
+                    holeMesh.userData = {
+                        isHole: true,
+                        col: col,
+                        rowKey: row.key,
+                        zOffset: row.zOffset,
+                        gridPos: new THREE.Vector3(xPos, 0, zPos),
+                        defaultMat: holeMatDefault,
+                        hoverMat: holeMatHover,
+                        occupiedMat: holeMatOccupied
+                    };
+
+                    boardGroup.add(holeMesh);
+                    holesArray.push(holeMesh);
+                });
+            }
+
+            scene.add(boardGroup);
+        }
+        buildBreadboard();
+
+        // --- STATE MANAGEMENT ---
+        let activeWire = null;
+        const finishedWires = [];
+        const placedComponents = [];
+
+        let selectedObject = null; // { type: 'WIRE'|'COMPONENT', data: ref }
+        let selectionBoxHelper = null;
+
+        const arrowGroup = new THREE.Group();
+        scene.add(arrowGroup);
+        const clickableArrows = [];
+
+        const ghostGroup = new THREE.Group();
+        scene.add(ghostGroup);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hoveredHole = null;
+
+        let compPlacementStep = 0; 
+        let compPin1Pos = null;
+
+        const wireRenderGroup = new THREE.Group();
+        scene.add(wireRenderGroup);
+
+        const compRenderGroup = new THREE.Group();
+        scene.add(compRenderGroup);
+
+        function getStrictIntersectPoint() {
+            raycaster.setFromCamera(mouse, camera);
+            const planeIntersect = new THREE.Vector3();
+            const hit = raycaster.ray.intersectPlane(boardGroundPlane, planeIntersect);
+
+            if (!hit) return null;
+
+            if (planeIntersect.x < BOARD_BOUNDS.minX || planeIntersect.x > BOARD_BOUNDS.maxX ||
+                planeIntersect.z < BOARD_BOUNDS.minZ || planeIntersect.z > BOARD_BOUNDS.maxZ) {
+                return null;
+            }
+
+            return planeIntersect;
+        }
+
+        function findNearestHole(point) {
+            if (!point) return null;
+
+            let closest = null;
+            let minDistSq = Infinity;
+            
+            for (let i = 0; i < holesArray.length; i++) {
+                const h = holesArray[i];
+                const dSq = h.userData.gridPos.distanceToSquared(point);
+                if (dSq < minDistSq) {
+                    minDistSq = dSq;
+                    closest = h;
+                }
+            }
+
+            if (minDistSq > 2.25) return null;
+            return closest;
+        }
+
+        // --- COLOR PALETTE UI ---
+        function renderPaletteUI() {
+            const containerEl = document.getElementById('color-palette');
+            containerEl.innerHTML = '';
+
+            COLOR_PALETTE.forEach((col, idx) => {
+                const dot = document.createElement('div');
+                dot.className = `color-dot ${idx === activeColorIndex ? 'active' : ''}`;
+                dot.style.backgroundColor = col.css;
+                dot.title = col.name;
+
+                dot.addEventListener('click', () => {
+                    activeColorIndex = idx;
+                    renderPaletteUI();
+
+                    if (activeWire) {
+                        activeWire.color = COLOR_PALETTE[activeColorIndex].hex;
+                        renderAllWires();
+                    } else if (selectedObject && selectedObject.type === 'WIRE') {
+                        selectedObject.data.color = COLOR_PALETTE[activeColorIndex].hex;
+                        renderAllWires();
+                    } else if (selectedObject && selectedObject.type === 'COMPONENT' && selectedObject.data.type === 'LED') {
+                        selectedObject.data.color = COLOR_PALETTE[activeColorIndex].hex;
+                        renderAllComponents();
+                    }
+                    updateGhostPreview(getStrictIntersectPoint());
+                });
+
+                containerEl.appendChild(dot);
+            });
+        }
+        renderPaletteUI();
+
+        document.getElementById('btn-add-color').addEventListener('click', () => {
+            const picker = document.getElementById('custom-hex-picker');
+            const hexStr = picker.value;
+            const hexNum = parseInt(hexStr.replace('#', '0x'), 16);
+
+            COLOR_PALETTE.push({ name: 'Custom', hex: hexNum, css: hexStr });
+            activeColorIndex = COLOR_PALETTE.length - 1;
+            renderPaletteUI();
+            showToast(`Added custom color ${hexStr}!`);
+        });
+
+        // --- WIRE RENDERER ---
+        function createWireMesh(points, colorHex) {
+            const group = new THREE.Group();
+            
+            const mat = new THREE.MeshStandardMaterial({ 
+                color: colorHex, 
+                roughness: 0.3, 
+                metalness: 0.1
+            });
+            const pinMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.9, roughness: 0.2 });
+
+            for (let i = 0; i < points.length - 1; i++) {
+                const p1 = points[i], p2 = points[i + 1];
+                const dist = p1.distanceTo(p2);
+                if (dist < 0.001) continue;
+
+                const cylGeo = new THREE.CylinderGeometry(WIRE_RADIUS, WIRE_RADIUS, dist, 16);
+                const cylMesh = new THREE.Mesh(cylGeo, mat);
+                cylMesh.castShadow = true;
+
+                const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                cylMesh.position.copy(mid);
+
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                cylMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+                group.add(cylMesh);
+
+                const sphereGeo = new THREE.SphereGeometry(WIRE_RADIUS, 16, 16);
+                const sphereMesh = new THREE.Mesh(sphereGeo, mat);
+                sphereMesh.position.copy(p1);
+                sphereMesh.castShadow = true;
+                group.add(sphereMesh);
+            }
+
+            if (points.length > 0) {
+                const sphereGeo = new THREE.SphereGeometry(WIRE_RADIUS, 16, 16);
+                const endSphere = new THREE.Mesh(sphereGeo, mat);
+                endSphere.position.copy(points[points.length - 1]);
+                endSphere.castShadow = true;
+                group.add(endSphere);
+            }
+
+            if (points.length >= 2) {
+                [points[0], points[points.length - 1]].forEach(pt => {
+                    if (Math.abs(pt.y) < 0.2) {
+                        const pinGeo = new THREE.CylinderGeometry(HOLE_RADIUS * 0.8, HOLE_RADIUS * 0.8, 0.4, 12);
+                        const pinMesh = new THREE.Mesh(pinGeo, pinMat);
+                        pinMesh.position.copy(pt).setY(-0.1);
+                        group.add(pinMesh);
+                    }
+                });
+            }
+
+            return group;
+        }
+
+        function renderAllWires() {
+            while (wireRenderGroup.children.length > 0) wireRenderGroup.remove(wireRenderGroup.children[0]);
+
+            finishedWires.forEach((w, idx) => {
+                const mesh = createWireMesh(w.points, w.color);
+                mesh.userData = { isSelectableWire: true, wireData: w, wireIndex: idx };
+                wireRenderGroup.add(mesh);
+            });
+
+            if (activeWire && activeWire.points.length > 0) {
+                const mesh = createWireMesh(activeWire.points, activeWire.color);
+                wireRenderGroup.add(mesh);
+            }
+
+            rebuildOccupiedHoles();
+            updateSummaryBadge();
+            updateSelectionHighlight();
+        }
+
+        // --- COMPONENT MODEL BUILDERS ---
+        function createDIPICMesh(pinsPerSide, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x00aaff : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.2 });
+            
+            const pinMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.9, roughness: 0.2 });
+
+            const icLength = pinsPerSide * 1.0; 
+            const icWidth = 2.4; 
+
+            // Body shape with semi-circular notch indent recessed into the top front edge (-X end)
+            const shape = new THREE.Shape();
+            const len = icLength - 0.2;
+            const w = icWidth;
+            
+            shape.moveTo(len / 2, -w / 2);
+            shape.lineTo(len / 2, w / 2);
+            shape.lineTo(-len / 2, w / 2);
+            shape.lineTo(-len / 2, 0.2);
+            shape.absarc(-len / 2, 0, 0.2, Math.PI / 2, -Math.PI / 2, true); // Recessed arc indent
+            shape.lineTo(-len / 2, -w / 2);
+            shape.closePath();
+
+            const extrudeSettings = {
+                depth: 0.65,
+                bevelEnabled: true,
+                bevelThickness: 0.04,
+                bevelSize: 0.04,
+                bevelSegments: 2
+            };
+
+            const bodyGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            bodyGeo.center();
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.rotation.x = Math.PI / 2;
+            bodyMesh.position.y = 0.55;
+            group.add(bodyMesh);
+
+            const startX = -icLength / 2 + 0.5;
+            for (let i = 0; i < pinsPerSide; i++) {
+                const xOffset = startX + i * 1.0;
+                [-1.0, 1.0].forEach(zOffset => {
+                    const pinGeo = new THREE.BoxGeometry(0.16, 0.7, 0.16);
+                    const pin = new THREE.Mesh(pinGeo, pinMat);
+                    pin.position.set(xOffset, 0.25, zOffset);
+                    group.add(pin);
+                });
+            }
+
+            return group;
+        }
+
+        function createButtonMesh(isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x2dd4bf : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+            const btnMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.2, metalness: 0.8 });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 });
+
+            const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 1.6), bodyMat);
+            bodyMesh.position.set(0, 0.4, 0);
+            group.add(bodyMesh);
+
+            const capMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16), btnMat);
+            capMesh.position.set(0, 0.65, 0);
+            group.add(capMesh);
+
+            [-0.5, 0.5].forEach(x => {
+                [-1.0, 1.0].forEach(z => {
+                    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8), legMat);
+                    leg.position.set(x, 0.2, z);
+                    group.add(leg);
+                });
+            });
+
+            return group;
+        }
+
+        function createHeaderPinMesh(isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const collarMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0xeab308 : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 });
+            const pinMat = isGhost ? collarMat : new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.9, roughness: 0.2 });
+
+            const collarMesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.25, 0.8), collarMat);
+            collarMesh.position.set(0, 0.125, 0);
+            group.add(collarMesh);
+
+            const pinMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.4, 0.18), pinMat);
+            pinMesh.position.set(0, 0.7, 0);
+            group.add(pinMesh);
+
+            return group;
+        }
+
+        function createTransistorMesh(isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x38bdf8 : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.1, transparent: false, opacity: 1.0 });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+
+            // Solid 2D D-shape profile extruded vertically
+            const shape = new THREE.Shape();
+            const r = 0.38;
+            shape.absarc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+            shape.lineTo(0, -r);
+
+            const extrudeSettings = {
+                depth: 0.8,
+                bevelEnabled: true,
+                bevelSegments: 2,
+                steps: 1,
+                bevelSize: 0.02,
+                bevelThickness: 0.02
+            };
+
+            const bodyGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.rotation.x = -Math.PI / 2;
+            bodyMesh.rotation.z = Math.PI / 2; // Rotated 90 degrees
+            bodyMesh.position.set(0, 0.5, 0);
+            group.add(bodyMesh);
+
+            // Center leg (straight vertical down from body)
+            const midLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8), legMat);
+            midLeg.position.set(0, 0.25, 0);
+            group.add(midLeg);
+
+            // Splayed outer legs connecting hole positions (X = -1.0 and X = +1.0) directly to body bottom (X = -0.2 and X = +0.2)
+            [ { holeX: -1.0, bodyX: -0.2 }, { holeX: 1.0, bodyX: 0.2 } ].forEach(legData => {
+                const p1 = new THREE.Vector3(legData.holeX, 0, 0);
+                const p2 = new THREE.Vector3(legData.bodyX, 0.5, 0);
+                const dist = p1.distanceTo(p2);
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+
+                const legMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, dist, 8), legMat);
+                legMesh.position.copy(mid);
+                legMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+                group.add(legMesh);
+            });
+
+            return group;
+        }
+
+        function createResistorMesh(p1, p2, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const p1Flat = p1.clone().setY(0);
+            const p2Flat = p2.clone().setY(0);
+            const dist = p1Flat.distanceTo(p2Flat);
+            const halfDist = dist / 2;
+
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x00aaff : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0xdeb887, roughness: 0.4 });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+
+            const bodyLen = Math.min(dist * 0.55, 1.8);
+            const bodyRadius = 0.28;
+            const bodyHeight = 0.85;
+
+            const bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyLen, 16), bodyMat);
+            bodyMesh.position.set(0, bodyHeight, 0);
+            bodyMesh.rotation.z = Math.PI / 2;
+            group.add(bodyMesh);
+
+            [-bodyLen / 2, bodyLen / 2].forEach(offset => {
+                const capMesh = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 1.15, bodyRadius * 1.15, 0.12, 16), bodyMat);
+                capMesh.position.set(offset, bodyHeight, 0);
+                capMesh.rotation.z = Math.PI / 2;
+                group.add(capMesh);
+            });
+
+            if (!isGhost) {
+                const bandColors = [0x8b4513, 0x111111, 0xef4444, 0xd4af37];
+                bandColors.forEach((color, bIdx) => {
+                    const bandMat = new THREE.MeshBasicMaterial({ color: color });
+                    const bandMesh = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 1.03, bodyRadius * 1.03, 0.08, 16), bandMat);
+                    bandMesh.position.set([-0.35, -0.12, 0.12, 0.38][bIdx] * (bodyLen / 1.5), bodyHeight, 0);
+                    bandMesh.rotation.z = Math.PI / 2;
+                    group.add(bandMesh);
+                });
+            }
+
+            [-halfDist, halfDist].forEach((xLoc, idx) => {
+                const legX = idx === 0 ? -bodyLen / 2 : bodyLen / 2;
+                
+                const vertMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, bodyHeight, 8), legMat);
+                vertMesh.position.set(xLoc, bodyHeight / 2, 0);
+                group.add(vertMesh);
+
+                if (Math.abs(xLoc - legX) > 0.01) {
+                    const hLen = Math.abs(xLoc - legX);
+                    const hMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, hLen, 8), legMat);
+                    hMesh.position.set((xLoc + legX) / 2, bodyHeight, 0);
+                    hMesh.rotation.z = Math.PI / 2;
+                    group.add(hMesh);
+                }
+            });
+
+            return group;
+        }
+
+        function createDiodeMesh(p1, p2, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const p1Flat = p1.clone().setY(0);
+            const p2Flat = p2.clone().setY(0);
+            const dist = p1Flat.distanceTo(p2Flat);
+            const halfDist = dist / 2;
+
+            const bodyLen = Math.min(dist * 0.5, 1.6);
+            const bodyHeight = 0.8;
+
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x00aaff : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 });
+            const bandMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.8 });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+
+            const bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, bodyLen, 16), bodyMat);
+            bodyMesh.position.set(0, bodyHeight, 0);
+            bodyMesh.rotation.z = Math.PI / 2;
+            group.add(bodyMesh);
+
+            if (!isGhost) {
+                const bandMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.2, 16), bandMat);
+                bandMesh.position.set(bodyLen * 0.28, bodyHeight, 0);
+                bandMesh.rotation.z = Math.PI / 2;
+                group.add(bandMesh);
+            }
+
+            [-halfDist, halfDist].forEach((xLoc, idx) => {
+                const legX = idx === 0 ? -bodyLen / 2 : bodyLen / 2;
+                
+                const vertMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, bodyHeight, 8), legMat);
+                vertMesh.position.set(xLoc, bodyHeight / 2, 0);
+                group.add(vertMesh);
+
+                if (Math.abs(xLoc - legX) > 0.01) {
+                    const hLen = Math.abs(xLoc - legX);
+                    const hMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, hLen, 8), legMat);
+                    hMesh.position.set((xLoc + legX) / 2, bodyHeight, 0);
+                    hMesh.rotation.z = Math.PI / 2;
+                    group.add(hMesh);
+                }
+            });
+
+            return group;
+        }
+
+        function createLEDMesh(p1, p2, colorHex, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const p1Flat = p1.clone().setY(0);
+            const p2Flat = p2.clone().setY(0);
+            const dist = p1Flat.distanceTo(p2Flat);
+            const halfDist = dist / 2;
+
+            // Translucent epoxy dome material
+            const domeMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? colorHex : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshPhysicalMaterial({ color: colorHex, transmission: 0.15, opacity: 0.95, transparent: true, roughness: 0.1, clearcoat: 1.0 });
+            const legMat = isGhost ? domeMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+
+            const domeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.7, 16), domeMat);
+            domeMesh.position.set(0, 1.0, 0);
+            group.add(domeMesh);
+
+            const capMesh = new THREE.Mesh(new THREE.SphereGeometry(0.38, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
+            capMesh.position.set(0, 1.35, 0);
+            group.add(capMesh);
+
+            const rimMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.12, 16), domeMat);
+            rimMesh.position.set(0, 0.65, 0);
+            group.add(rimMesh);
+
+            [-halfDist, halfDist].forEach(xLoc => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.65, 8), legMat);
+                leg.position.set(xLoc, 0.325, 0);
+                group.add(leg);
+
+                if (Math.abs(xLoc) > 0.01) {
+                    const hLen = Math.abs(xLoc);
+                    const hMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, hLen, 8), legMat);
+                    hMesh.position.set(xLoc / 2, 0.65, 0);
+                    hMesh.rotation.z = Math.PI / 2;
+                    group.add(hMesh);
+                }
+            });
+
+            return group;
+        }
+
+        function createCeramicCapMesh(p1, p2, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const p1Flat = p1.clone().setY(0);
+            const p2Flat = p2.clone().setY(0);
+            const dist = p1Flat.distanceTo(p2Flat);
+            const halfDist = dist / 2;
+
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0xf97316 : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.5, metalness: 0.1 });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+
+            const discMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.16, 16), bodyMat);
+            discMesh.position.set(0, 1.1, 0);
+            discMesh.rotation.x = Math.PI / 2;
+            group.add(discMesh);
+
+            [-halfDist, halfDist].forEach(xLoc => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 8), legMat);
+                leg.position.set(xLoc, 0.55, 0);
+                group.add(leg);
+
+                if (Math.abs(xLoc) > 0.1) {
+                    const hLen = Math.abs(xLoc);
+                    const hMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, hLen, 8), legMat);
+                    hMesh.position.set(xLoc / 2, 1.0, 0);
+                    hMesh.rotation.z = Math.PI / 2;
+                    group.add(hMesh);
+                }
+            });
+
+            return group;
+        }
+
+        function createElecCapMesh(p1, p2, isGhost = false, isValid = true) {
+            const group = new THREE.Group();
+            const p1Flat = p1.clone().setY(0);
+            const p2Flat = p2.clone().setY(0);
+            const dist = p1Flat.distanceTo(p2Flat);
+            const halfDist = dist / 2;
+
+            const bodyMat = isGhost ? 
+                new THREE.MeshBasicMaterial({ color: isValid ? 0x0284c7 : 0xef4444, transparent: true, opacity: 0.65 }) :
+                new THREE.MeshStandardMaterial({ color: 0x0369a1, roughness: 0.2, metalness: 0.6 });
+            const rubberMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+            const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const legMat = isGhost ? bodyMat : new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+
+            const canMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.0, 16), bodyMat);
+            canMesh.position.set(0, 0.9, 0);
+            group.add(canMesh);
+
+            const rubberMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 16), rubberMat);
+            rubberMesh.position.set(0, 0.38, 0);
+            group.add(rubberMesh);
+
+            if (!isGhost) {
+                // White stripe aligned over the leg at -halfDist (theta = -Math.PI / 2 along -X axis)
+                const stripeMesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.405, 0.405, 0.98, 16, 1, false, -Math.PI / 2 - 0.4, 0.8),
+                    stripeMat
+                );
+                stripeMesh.position.set(0, 0.9, 0);
+                group.add(stripeMesh);
+            }
+
+            [-halfDist, halfDist].forEach(xLoc => {
+                const vertLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8), legMat);
+                vertLeg.position.set(xLoc, 0.2, 0);
+                group.add(vertLeg);
+
+                if (Math.abs(xLoc) > 0.05) {
+                    const hLen = Math.abs(xLoc);
+                    const hMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, hLen, 8), legMat);
+                    hMesh.position.set(xLoc / 2, 0.38, 0);
+                    hMesh.rotation.z = Math.PI / 2;
+                    group.add(hMesh);
+                }
+            });
+
+            return group;
+        }
+
+        function renderAllComponents() {
+            while (compRenderGroup.children.length > 0) compRenderGroup.remove(compRenderGroup.children[0]);
+
+            placedComponents.forEach((c, idx) => {
+                let meshGroup;
+
+                if (c.type === 'IC14') meshGroup = createDIPICMesh(7, false, true);
+                else if (c.type === 'IC8') meshGroup = createDIPICMesh(4, false, true);
+                else if (c.type === 'IC16') meshGroup = createDIPICMesh(8, false, true);
+                else if (c.type === 'BUTTON') meshGroup = createButtonMesh(false, true);
+                else if (c.type === 'PIN') meshGroup = createHeaderPinMesh(false, true);
+                else if (c.type === 'TRANSISTOR') meshGroup = createTransistorMesh(false, true);
+                else if (c.type === 'RESISTOR') meshGroup = createResistorMesh(c.p1, c.p2, false, true);
+                else if (c.type === 'DIODE') meshGroup = createDiodeMesh(c.p1, c.p2, false, true);
+                else if (c.type === 'LED') meshGroup = createLEDMesh(c.p1, c.p2, c.color, false, true);
+                else if (c.type === 'CAP_CERAMIC') meshGroup = createCeramicCapMesh(c.p1, c.p2, false, true);
+                else if (c.type === 'CAP_ELEC') meshGroup = createElecCapMesh(c.p1, c.p2, false, true);
+
+                if (meshGroup) {
+                    if (c.pos) {
+                        meshGroup.position.copy(c.pos);
+                        meshGroup.rotation.y = c.isRotated ? Math.PI : 0;
+                    } else if (c.p1 && c.p2) {
+                        const p1 = c.p1.clone().setY(0);
+                        const p2 = c.p2.clone().setY(0);
+                        const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                        const baseAngle = -Math.atan2(p2.z - p1.z, p2.x - p1.x);
+
+                        meshGroup.position.copy(mid);
+                        meshGroup.rotation.y = baseAngle + (c.isRotated ? Math.PI : 0);
+                    }
+
+                    meshGroup.userData = { isSelectableComp: true, compData: c, compIndex: idx };
+                    compRenderGroup.add(meshGroup);
+                }
+            });
+
+            rebuildOccupiedHoles();
+            updateSummaryBadge();
+            updateSelectionHighlight();
+        }
+
+        // --- NON-DESTRUCTIVE SELECTION HIGHLIGHT ---
+        function updateSelectionHighlight() {
+            if (selectionBoxHelper) {
+                scene.remove(selectionBoxHelper);
+                if (selectionBoxHelper.geometry) selectionBoxHelper.geometry.dispose();
+                selectionBoxHelper = null;
+            }
+
+            if (!selectedObject) return;
+
+            let targetMesh = null;
+            if (selectedObject.type === 'WIRE') {
+                wireRenderGroup.children.forEach(child => {
+                    if (child.userData.wireData === selectedObject.data) targetMesh = child;
+                });
+            } else if (selectedObject.type === 'COMPONENT') {
+                compRenderGroup.children.forEach(child => {
+                    if (child.userData.compData === selectedObject.data) targetMesh = child;
+                });
+            }
+
+            if (targetMesh) {
+                selectionBoxHelper = new THREE.BoxHelper(targetMesh, 0x00d2ff);
+                scene.add(selectionBoxHelper);
+            }
+        }
+
+        function setSelection(obj) {
+            selectedObject = obj;
+            if (selectedObject) {
+                showInspectorUI();
+            } else {
+                hideInspectorUI();
+            }
+            updateSelectionHighlight();
+        }
+
+        // --- ORTHOGONAL ROUTING ARROWS ---
+        function createArrowMesh(dirVector, colorHex, label, isDisabled = false) {
+            const arrowContainer = new THREE.Group();
+
+            const shaftLen = 0.9, headLen = 0.35, radius = 0.08;
+            const shaftGeo = new THREE.CylinderGeometry(radius, radius, shaftLen, 12);
+            const mat = new THREE.MeshBasicMaterial({ color: isDisabled ? 0xef4444 : colorHex, depthTest: false });
+            
+            const shaftMesh = new THREE.Mesh(shaftGeo, mat);
+            shaftMesh.position.y = shaftLen / 2;
+
+            const headGeo = new THREE.ConeGeometry(0.22, headLen, 12);
+            const headMesh = new THREE.Mesh(headGeo, mat);
+            headMesh.position.y = shaftLen + headLen / 2;
+
+            arrowContainer.add(shaftMesh);
+            arrowContainer.add(headMesh);
+            arrowContainer.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirVector);
+
+            const hitGeo = new THREE.CylinderGeometry(0.35, 0.35, shaftLen + headLen + 0.2, 8);
+            const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+            const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+            hitMesh.position.copy(dirVector).multiplyScalar((shaftLen + headLen) / 2);
+            hitMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirVector);
+
+            hitMesh.userData = { isArrow: true, direction: dirVector, label: label, isDisabled: isDisabled };
+
+            const fullGroup = new THREE.Group();
+            fullGroup.add(arrowContainer);
+            fullGroup.add(hitMesh);
+
+            return { fullGroup, hitMesh };
+        }
+
+        function updateArrows() {
+            while (arrowGroup.children.length > 0) arrowGroup.remove(arrowGroup.children[0]);
+            clickableArrows.length = 0;
+
+            const midBar = document.getElementById('midwire-toolbar');
+
+            if (CURRENT_MODE !== 'WIRE' || !activeWire || activeWire.points.length === 0) {
+                midBar.classList.add('hidden');
+                return;
+            }
+
+            midBar.classList.remove('hidden');
+
+            const tip = activeWire.points[activeWire.points.length - 1];
+            arrowGroup.position.copy(tip);
+
+            let lastDir = null;
+            if (activeWire.points.length >= 2) {
+                const prevPt = activeWire.points[activeWire.points.length - 2];
+                lastDir = new THREE.Vector3().subVectors(tip, prevPt).normalize();
+            }
+
+            let directions = [
+                { dir: new THREE.Vector3(1, 0, 0),  color: 0xef4444, label: '+X (Right)' },
+                { dir: new THREE.Vector3(-1, 0, 0), color: 0xf87171, label: '-X (Left)' },
+                { dir: new THREE.Vector3(0, 0, 1),  color: 0x10b981, label: '+Z (Row J)' },
+                { dir: new THREE.Vector3(0, 0, -1), color: 0x34d399, label: '-Z (Row A)' },
+                { dir: new THREE.Vector3(0, 1, 0),  color: 0x3b82f6, label: '+Y (Up)' }
+            ];
+
+            if (tip.y >= 0.9) {
+                const targetDownPos = tip.clone().setY(0);
+                const downKey = getHoleKeyFromPos(targetDownPos);
+                const isDownOccupied = downKey ? occupiedHoles.has(downKey) : false;
+
+                directions.push({ 
+                    dir: new THREE.Vector3(0, -1, 0), 
+                    color: isDownOccupied ? 0xef4444 : 0xeab308, 
+                    label: isDownOccupied ? '-Y (Occupied!)' : '-Y (Down)',
+                    isDisabled: isDownOccupied
+                });
+            }
+
+            if (lastDir) {
+                directions = directions.filter(item => item.dir.dot(lastDir) > -0.95);
+            }
+
+            directions.forEach(item => {
+                const arrowObj = createArrowMesh(item.dir, item.color, item.label, item.isDisabled);
+                arrowGroup.add(arrowObj.fullGroup);
+                clickableArrows.push(arrowObj.hitMesh);
+            });
+
+            const badge = document.getElementById('status-badge');
+            badge.classList.remove('hidden');
+            badge.innerText = `Y: ${tip.y.toFixed(1)}`;
+        }
+
+        // --- GHOST PREVIEW MANAGER ---
+        function updateGhostPreview(worldIntersectPt) {
+            while (ghostGroup.children.length > 0) ghostGroup.remove(ghostGroup.children[0]);
+
+            if (CURRENT_MODE !== 'COMPONENT' || !worldIntersectPt) return;
+
+            const nearestHole = findNearestHole(worldIntersectPt);
+            if (!nearestHole) return;
+
+            const col = nearestHole.userData.col;
+
+            if (['IC14', 'IC8', 'IC16'].includes(ACTIVE_COMP_TYPE)) {
+                let pinsPerSide = 7;
+                if (ACTIVE_COMP_TYPE === 'IC8') pinsPerSide = 4;
+                if (ACTIVE_COMP_TYPE === 'IC16') pinsPerSide = 8;
+
+                const maxStartCol = 61 - pinsPerSide;
+                const startCol = Math.max(1, Math.min(maxStartCol, col));
+
+                const centerX = (startCol + (pinsPerSide - 1) / 2 - 30.5) * PITCH;
+                const icPos = new THREE.Vector3(centerX, 0.0, 0.0);
+
+                const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, icPos, null, null);
+                const isValid = !isAnyHoleOccupied(targetKeys);
+
+                const ghostMesh = createDIPICMesh(pinsPerSide, true, isValid);
+                ghostMesh.position.copy(icPos);
+                ghostGroup.add(ghostMesh);
+
+                const statusTxt = document.getElementById('status-text');
+                if (!isValid) {
+                    statusTxt.innerText = `⚠️ Hole(s) Occupied! Cannot place ${ACTIVE_COMP_NAME}`;
+                    statusTxt.classList.add('text-rose-400');
+                } else {
+                    statusTxt.innerText = `Place ${ACTIVE_COMP_NAME} spanning Cols ${startCol}-${startCol + pinsPerSide - 1}`;
+                    statusTxt.classList.remove('text-rose-400');
+                }
+            } 
+            else if (ACTIVE_COMP_TYPE === 'BUTTON') {
+                const cCol = Math.min(col, 59);
+                const centerX = (cCol - 30.0) * PITCH;
+                const btnPos = new THREE.Vector3(centerX, 0.0, 0.0);
+
+                const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, btnPos, null, null);
+                const isValid = !isAnyHoleOccupied(targetKeys);
+
+                const ghostMesh = createButtonMesh(true, isValid);
+                ghostMesh.position.copy(btnPos);
+                ghostGroup.add(ghostMesh);
+
+                const statusTxt = document.getElementById('status-text');
+                if (!isValid) {
+                    statusTxt.innerText = `⚠️ Hole(s) Occupied! Cannot place Tactile Switch`;
+                    statusTxt.classList.add('text-rose-400');
+                } else {
+                    statusTxt.innerText = `Place Tactile Switch spanning Cols ${cCol}-${cCol + 1} (Rows E & F)`;
+                    statusTxt.classList.remove('text-rose-400');
+                }
+            }
+            else if (ACTIVE_COMP_TYPE === 'PIN') {
+                const pos = nearestHole.userData.gridPos.clone();
+                const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, pos, null, null);
+                const isValid = !isAnyHoleOccupied(targetKeys);
+
+                const ghostMesh = createHeaderPinMesh(true, isValid);
+                ghostMesh.position.copy(pos);
+                ghostGroup.add(ghostMesh);
+
+                const statusTxt = document.getElementById('status-text');
+                if (!isValid) {
+                    statusTxt.innerText = `⚠️ Hole Occupied! Cannot place Header Pin`;
+                    statusTxt.classList.add('text-rose-400');
+                } else {
+                    statusTxt.innerText = `Click to place Header Pin in hole`;
+                    statusTxt.classList.remove('text-rose-400');
+                }
+            }
+            else if (ACTIVE_COMP_TYPE === 'TRANSISTOR') {
+                const cCol = Math.max(2, Math.min(59, col));
+                const pos = nearestHole.userData.gridPos.clone().setX((cCol - 30.5) * PITCH);
+
+                const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, pos, null, null);
+                const isValid = !isAnyHoleOccupied(targetKeys);
+
+                const ghostMesh = createTransistorMesh(true, isValid);
+                ghostMesh.position.copy(pos);
+                ghostGroup.add(ghostMesh);
+
+                const statusTxt = document.getElementById('status-text');
+                if (!isValid) {
+                    statusTxt.innerText = `⚠️ Hole(s) Occupied! Cannot place Transistor`;
+                    statusTxt.classList.add('text-rose-400');
+                } else {
+                    statusTxt.innerText = `Click to place Transistor`;
+                    statusTxt.classList.remove('text-rose-400');
+                }
+            }
+            else if (['RESISTOR', 'DIODE', 'LED', 'CAP_CERAMIC', 'CAP_ELEC'].includes(ACTIVE_COMP_TYPE)) {
+                const holePos = nearestHole.userData.gridPos.clone();
+
+                if (compPlacementStep === 0) {
+                    const holeKey = getHoleKeyFromPos(holePos);
+                    const isOccupied = holeKey ? occupiedHoles.has(holeKey) : false;
+
+                    const pinMesh = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.25, 0.25, 0.4, 12), 
+                        new THREE.MeshBasicMaterial({ color: isOccupied ? 0xef4444 : 0x38bdf8 })
+                    );
+                    pinMesh.position.copy(holePos).setY(0.2);
+                    ghostGroup.add(pinMesh);
+
+                    const statusTxt = document.getElementById('status-text');
+                    if (isOccupied) {
+                        statusTxt.innerText = `❌ Hole Occupied! Select an empty hole for 1st lead`;
+                        statusTxt.classList.add('text-rose-400');
+                    } else {
+                        statusTxt.innerText = `Click 1st hole for ${ACTIVE_COMP_NAME}`;
+                        statusTxt.classList.remove('text-rose-400');
+                    }
+                } 
+                else if (compPlacementStep === 1 && compPin1Pos) {
+                    const p1 = compPin1Pos;
+                    const p2 = holePos;
+                    const distHoles = Math.round(p1.distanceTo(p2));
+
+                    const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, null, p1, p2);
+                    const isOccupied = isAnyHoleOccupied(targetKeys);
+                    const isValidSpan = (distHoles >= 1 && distHoles <= 10) && !isOccupied;
+
+                    let ghostMesh;
+                    const currentColor = COLOR_PALETTE[activeColorIndex].hex;
+
+                    if (ACTIVE_COMP_TYPE === 'RESISTOR') ghostMesh = createResistorMesh(p1, p2, true, isValidSpan);
+                    else if (ACTIVE_COMP_TYPE === 'DIODE') ghostMesh = createDiodeMesh(p1, p2, true, isValidSpan);
+                    else if (ACTIVE_COMP_TYPE === 'LED') ghostMesh = createLEDMesh(p1, p2, currentColor, true, isValidSpan);
+                    else if (ACTIVE_COMP_TYPE === 'CAP_CERAMIC') ghostMesh = createCeramicCapMesh(p1, p2, true, isValidSpan);
+                    else if (ACTIVE_COMP_TYPE === 'CAP_ELEC') ghostMesh = createElecCapMesh(p1, p2, true, isValidSpan);
+
+                    if (ghostMesh) {
+                        const p1Flat = p1.clone().setY(0);
+                        const p2Flat = p2.clone().setY(0);
+                        const mid = new THREE.Vector3().addVectors(p1Flat, p2Flat).multiplyScalar(0.5);
+                        const baseAngle = -Math.atan2(p2Flat.z - p1Flat.z, p2Flat.x - p1Flat.x);
+
+                        ghostMesh.position.copy(mid);
+                        ghostMesh.rotation.y = baseAngle;
+                        ghostGroup.add(ghostMesh);
+                    }
+
+                    const statusTxt = document.getElementById('status-text');
+                    if (isOccupied) {
+                        statusTxt.innerText = `⚠️ Hole(s) Occupied! Select empty holes`;
+                        statusTxt.classList.add('text-rose-400');
+                    } else if (distHoles > 10 || distHoles < 1) {
+                        statusTxt.innerText = `⚠️ Distance invalid (${distHoles} holes > max 10)!`;
+                        statusTxt.classList.add('text-rose-400');
+                    } else {
+                        statusTxt.innerText = `Click 2nd hole to place ${ACTIVE_COMP_NAME} (Span: ${distHoles} holes)`;
+                        statusTxt.classList.remove('text-rose-400');
+                    }
+                }
+            }
+        }
+
+        function finalizeComponentPlacement(newComp) {
+            placedComponents.push(newComp);
+            compPlacementStep = 0;
+            compPin1Pos = null;
+            
+            while (ghostGroup.children.length > 0) ghostGroup.remove(ghostGroup.children[0]);
+
+            renderAllComponents();
+            
+            setMode('SELECT');
+            setSelection({ type: 'COMPONENT', data: newComp });
+            
+            showToast(`${ACTIVE_COMP_NAME} placed & selected for editing!`);
+        }
+
+        // --- MOUSE & RAYCAST INTERACTION ---
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            if (hoveredHole) {
+                hoveredHole.material = hoveredHole.userData.defaultMat;
+                hoveredHole = null;
+            }
+
+            const strictPt = getStrictIntersectPoint();
+
+            if (CURRENT_MODE === 'WIRE') {
+                if (!activeWire) {
+                    if (strictPt) {
+                        const hole = findNearestHole(strictPt);
+                        if (hole) {
+                            hoveredHole = hole;
+                            const key = getHoleKey(hole.userData.col, hole.userData.rowKey);
+                            const isOccupied = occupiedHoles.has(key);
+
+                            if (isOccupied) {
+                                hoveredHole.material = hoveredHole.userData.occupiedMat;
+                                document.body.style.cursor = 'not-allowed';
+                                const info = occupiedHoles.get(key);
+                                document.getElementById('status-text').innerText = `❌ Hole Occupied by ${info.label}`;
+                            } else {
+                                hoveredHole.material = hoveredHole.userData.hoverMat;
+                                document.body.style.cursor = 'pointer';
+                                document.getElementById('status-text').innerText = "Click hole to start wire";
+                            }
+                            return;
+                        }
+                    }
+                    document.body.style.cursor = 'default';
+                    document.getElementById('status-text').innerText = "Click any empty breadboard hole to start a wire";
+                } else {
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(clickableArrows);
+                    if (intersects.length > 0) {
+                        const arrowData = intersects[0].object.userData;
+                        if (arrowData.isDisabled) {
+                            document.body.style.cursor = 'not-allowed';
+                            document.getElementById('status-text').innerText = `❌ Cannot connect: Target hole is occupied!`;
+                        } else {
+                            document.body.style.cursor = 'pointer';
+                            document.getElementById('status-text').innerText = `Extend: ${arrowData.label}`;
+                        }
+                    } else {
+                        document.body.style.cursor = 'default';
+                    }
+                }
+            } 
+            else if (CURRENT_MODE === 'COMPONENT') {
+                if (strictPt) {
+                    document.body.style.cursor = 'pointer';
+                    updateGhostPreview(strictPt);
+                } else {
+                    document.body.style.cursor = 'default';
+                    while (ghostGroup.children.length > 0) ghostGroup.remove(ghostGroup.children[0]);
+                    document.getElementById('status-text').innerText = "Hover over breadboard to place component";
+                }
+            }
+            else if (CURRENT_MODE === 'SELECT') {
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'CANVAS') return;
+            if (isDraggingCamera) return;
+
+            const strictPt = getStrictIntersectPoint();
+
+            if (CURRENT_MODE === 'WIRE') {
+                if (!activeWire) {
+                    if (!strictPt) return;
+                    const hole = findNearestHole(strictPt);
+                    if (hole) {
+                        const key = getHoleKey(hole.userData.col, hole.userData.rowKey);
+                        if (occupiedHoles.has(key)) {
+                            showToast(`❌ Cannot start wire: Hole is occupied!`);
+                            return;
+                        }
+
+                        const startPos = hole.userData.gridPos.clone();
+                        const upPos = startPos.clone().setY(1.0);
+
+                        activeWire = {
+                            startHole: hole.userData.gridPos,
+                            points: [startPos, upPos],
+                            color: COLOR_PALETTE[activeColorIndex].hex
+                        };
+
+                        renderAllWires();
+                        updateArrows();
+                    }
+                } else {
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(clickableArrows);
+                    if (intersects.length > 0) {
+                        const arrowData = intersects[0].object.userData;
+                        if (arrowData.isDisabled) {
+                            showToast(`❌ Cannot end wire: Target hole is occupied!`);
+                            return;
+                        }
+
+                        const dir = arrowData.direction;
+                        const tip = activeWire.points[activeWire.points.length - 1];
+                        const nextPoint = tip.clone().add(dir);
+
+                        activeWire.points.push(nextPoint);
+
+                        if (nextPoint.y === 0) {
+                            const newWire = {...activeWire};
+                            finishedWires.push(newWire);
+                            activeWire = null;
+                            document.getElementById('status-badge').classList.add('hidden');
+                            
+                            renderAllWires();
+                            updateArrows();
+
+                            setMode('SELECT');
+                            setSelection({ type: 'WIRE', data: newWire });
+                            showToast("Wire placed & selected!");
+                        } else {
+                            renderAllWires();
+                            updateArrows();
+                        }
+                    }
+                }
+            } 
+            else if (CURRENT_MODE === 'COMPONENT') {
+                if (!strictPt) return;
+
+                const nearestHole = findNearestHole(strictPt);
+                if (!nearestHole) return;
+
+                const col = nearestHole.userData.col;
+
+                if (['IC14', 'IC8', 'IC16'].includes(ACTIVE_COMP_TYPE)) {
+                    let pinsPerSide = 7;
+                    if (ACTIVE_COMP_TYPE === 'IC8') pinsPerSide = 4;
+                    if (ACTIVE_COMP_TYPE === 'IC16') pinsPerSide = 8;
+
+                    const maxStartCol = 61 - pinsPerSide;
+                    const startCol = Math.max(1, Math.min(maxStartCol, col));
+
+                    const centerX = (startCol + (pinsPerSide - 1) / 2 - 30.5) * PITCH;
+                    const icPos = new THREE.Vector3(centerX, 0.0, 0.0);
+
+                    const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, icPos, null, null);
+                    if (isAnyHoleOccupied(targetKeys)) {
+                        showToast(`❌ Cannot place ${ACTIVE_COMP_NAME}: Target holes are occupied!`);
+                        return;
+                    }
+
+                    finalizeComponentPlacement({ type: ACTIVE_COMP_TYPE, pos: icPos, isRotated: false });
+                }
+                else if (ACTIVE_COMP_TYPE === 'BUTTON') {
+                    const cCol = Math.min(col, 59);
+                    const centerX = (cCol - 30.0) * PITCH;
+                    const btnPos = new THREE.Vector3(centerX, 0.0, 0.0);
+
+                    const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, btnPos, null, null);
+                    if (isAnyHoleOccupied(targetKeys)) {
+                        showToast(`❌ Cannot place Tactile Switch: Target holes are occupied!`);
+                        return;
+                    }
+
+                    finalizeComponentPlacement({ type: ACTIVE_COMP_TYPE, pos: btnPos, isRotated: false });
+                }
+                else if (ACTIVE_COMP_TYPE === 'PIN') {
+                    const pos = nearestHole.userData.gridPos.clone();
+                    const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, pos, null, null);
+                    if (isAnyHoleOccupied(targetKeys)) {
+                        showToast(`❌ Cannot place Header Pin: Hole is occupied!`);
+                        return;
+                    }
+
+                    finalizeComponentPlacement({ type: ACTIVE_COMP_TYPE, pos: pos, isRotated: false });
+                }
+                else if (ACTIVE_COMP_TYPE === 'TRANSISTOR') {
+                    const cCol = Math.max(2, Math.min(59, col));
+                    const pos = nearestHole.userData.gridPos.clone().setX((cCol - 30.5) * PITCH);
+
+                    const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, pos, null, null);
+                    if (isAnyHoleOccupied(targetKeys)) {
+                        showToast(`❌ Cannot place Transistor: Target holes are occupied!`);
+                        return;
+                    }
+
+                    finalizeComponentPlacement({ type: ACTIVE_COMP_TYPE, pos: pos, isRotated: false });
+                }
+                else if (['RESISTOR', 'DIODE', 'LED', 'CAP_CERAMIC', 'CAP_ELEC'].includes(ACTIVE_COMP_TYPE)) {
+                    const holePos = nearestHole.userData.gridPos.clone();
+
+                    if (compPlacementStep === 0) {
+                        const holeKey = getHoleKeyFromPos(holePos);
+                        if (occupiedHoles.has(holeKey)) {
+                            showToast(`❌ Selected hole is occupied! Pick an empty hole.`);
+                            return;
+                        }
+
+                        compPin1Pos = holePos;
+                        compPlacementStep = 1;
+                        document.getElementById('status-text').innerText = "Select 2nd hole for lead connection";
+                    } else {
+                        const distHoles = Math.round(compPin1Pos.distanceTo(holePos));
+                        const targetKeys = getComponentTargetHoles(ACTIVE_COMP_TYPE, null, compPin1Pos, holePos);
+
+                        if (isAnyHoleOccupied(targetKeys)) {
+                            showToast(`❌ Cannot place component: Target holes are occupied!`);
+                            return;
+                        }
+
+                        if (distHoles < 1 || distHoles > 10) {
+                            showToast("⚠️ Cannot place: Lead span is too long (>10 holes)!");
+                            return;
+                        }
+
+                        finalizeComponentPlacement({
+                            type: ACTIVE_COMP_TYPE,
+                            p1: compPin1Pos,
+                            p2: holePos,
+                            color: COLOR_PALETTE[activeColorIndex].hex,
+                            isRotated: false
+                        });
+                    }
+                }
+            }
+            else if (CURRENT_MODE === 'SELECT') {
+                raycaster.setFromCamera(mouse, camera);
+
+                const wireIntersects = raycaster.intersectObjects(wireRenderGroup.children, true);
+                if (wireIntersects.length > 0) {
+                    let rootObj = wireIntersects[0].object;
+                    while (rootObj.parent && !rootObj.userData.isSelectableWire) {
+                        rootObj = rootObj.parent;
+                    }
+                    if (rootObj && rootObj.userData.wireData) {
+                        setSelection({ type: 'WIRE', data: rootObj.userData.wireData });
+                        return;
+                    }
+                }
+
+                const compIntersects = raycaster.intersectObjects(compRenderGroup.children, true);
+                if (compIntersects.length > 0) {
+                    let rootObj = compIntersects[0].object;
+                    while (rootObj.parent && !rootObj.userData.isSelectableComp) {
+                        rootObj = rootObj.parent;
+                    }
+                    if (rootObj && rootObj.userData.compData) {
+                        setSelection({ type: 'COMPONENT', data: rootObj.userData.compData });
+                        return;
+                    }
+                }
+
+                setSelection(null);
+            }
+        });
+
+        // --- MID-WIRE ACTIVE ACTIONS ---
+        document.getElementById('btn-wire-stepback').addEventListener('click', () => {
+            if (activeWire && activeWire.points.length > 2) {
+                activeWire.points.pop();
+                renderAllWires();
+                updateArrows();
+                showToast("Stepped back wire 1 point.");
+            } else if (activeWire) {
+                activeWire = null;
+                renderAllWires();
+                updateArrows();
+                showToast("Wire cancelled.");
+            }
+        });
+
+        document.getElementById('btn-wire-cancel').addEventListener('click', () => {
+            activeWire = null;
+            renderAllWires();
+            updateArrows();
+            showToast("Wire cancelled.");
+        });
+
+        // --- MODE TOOLBAR SWITCHING ---
+        function setMode(mode) {
+            CURRENT_MODE = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`mode-${mode.toLowerCase()}`).classList.add('active');
+
+            document.getElementById('active-comp-panel').classList.toggle('hidden', mode !== 'COMPONENT');
+            
+            if (mode !== 'SELECT') setSelection(null);
+
+            compPlacementStep = 0;
+            compPin1Pos = null;
+            while (ghostGroup.children.length > 0) ghostGroup.remove(ghostGroup.children[0]);
+            updateArrows();
+
+            const statusText = document.getElementById('status-text');
+            if (mode === 'WIRE') statusText.innerText = "Click any empty hole to start a wire";
+            else if (mode === 'COMPONENT') statusText.innerText = `Click hole to place ${ACTIVE_COMP_NAME}`;
+            else if (mode === 'SELECT') statusText.innerText = "Click any wire or component to inspect / edit";
+        }
+
+        document.getElementById('mode-wire').addEventListener('click', () => setMode('WIRE'));
+        document.getElementById('mode-comp').addEventListener('click', () => openCompModal());
+        document.getElementById('btn-change-comp').addEventListener('click', () => openCompModal());
+        document.getElementById('mode-select').addEventListener('click', () => setMode('SELECT'));
+
+        function openCompModal() {
+            document.getElementById('comp-modal').classList.remove('hidden');
+        }
+
+        function closeCompModal() {
+            document.getElementById('comp-modal').classList.add('hidden');
+        }
+
+        document.getElementById('btn-close-comp-modal').addEventListener('click', closeCompModal);
+        document.getElementById('btn-cancel-comp').addEventListener('click', closeCompModal);
+
+        document.querySelectorAll('#comp-modal .comp-card').forEach(card => {
+            card.addEventListener('click', () => {
+                ACTIVE_COMP_TYPE = card.dataset.type;
+                ACTIVE_COMP_NAME = card.dataset.name;
+                ACTIVE_COMP_DESC = card.dataset.desc;
+
+                document.getElementById('active-comp-icon').innerText = card.dataset.type.substring(0, 4);
+                document.getElementById('active-comp-name').innerText = ACTIVE_COMP_NAME;
+                document.getElementById('active-comp-desc').innerText = ACTIVE_COMP_DESC;
+
+                closeCompModal();
+                setMode('COMPONENT');
+            });
+        });
+
+        // --- INSPECTOR PANEL ACTIONS ---
+        function showInspectorUI() {
+            const panel = document.getElementById('inspector-panel');
+            panel.classList.remove('hidden');
+
+            const label = document.getElementById('inspect-target-type');
+            if (selectedObject.type === 'WIRE') {
+                const idx = finishedWires.indexOf(selectedObject.data);
+                label.innerText = `Wire #${idx + 1}`;
+                document.getElementById('btn-inspect-stepback').classList.remove('hidden');
+                document.getElementById('btn-inspect-move').classList.add('hidden');
+                document.getElementById('btn-inspect-rotate').classList.add('hidden');
+            } else {
+                label.innerText = `${selectedObject.data.type} Component`;
+                document.getElementById('btn-inspect-stepback').classList.add('hidden');
+                document.getElementById('btn-inspect-move').classList.remove('hidden');
+                document.getElementById('btn-inspect-rotate').classList.remove('hidden');
+            }
+        }
+
+        function hideInspectorUI() {
+            document.getElementById('inspector-panel').classList.add('hidden');
+        }
+
+        document.getElementById('btn-inspect-rotate').addEventListener('click', () => {
+            if (!selectedObject || selectedObject.type !== 'COMPONENT') return;
+
+            const c = selectedObject.data;
+            c.isRotated = !c.isRotated;
+
+            renderAllComponents();
+            showToast(`Rotated ${c.type} 180° in-place!`);
+        });
+
+        document.getElementById('btn-inspect-move').addEventListener('click', () => {
+            if (!selectedObject || selectedObject.type !== 'COMPONENT') return;
+
+            const compData = selectedObject.data;
+            const idx = placedComponents.indexOf(compData);
+            if (idx > -1) placedComponents.splice(idx, 1);
+
+            ACTIVE_COMP_TYPE = compData.type;
+            ACTIVE_COMP_NAME = compData.type;
+            ACTIVE_COMP_DESC = "Re-positioning component";
+
+            document.getElementById('active-comp-icon').innerText = compData.type.substring(0, 4);
+            document.getElementById('active-comp-name').innerText = compData.type;
+
+            setSelection(null);
+            renderAllComponents();
+            setMode('COMPONENT');
+            showToast("Move mode active: Click new position on board.");
+        });
+
+        document.getElementById('btn-inspect-delete').addEventListener('click', () => {
+            if (!selectedObject) return;
+            
+            if (selectedObject.type === 'WIRE') {
+                const idx = finishedWires.indexOf(selectedObject.data);
+                if (idx > -1) finishedWires.splice(idx, 1);
+                renderAllWires();
+            } else if (selectedObject.type === 'COMPONENT') {
+                const idx = placedComponents.indexOf(selectedObject.data);
+                if (idx > -1) placedComponents.splice(idx, 1);
+                renderAllComponents();
+            }
+
+            setSelection(null);
+            showToast("Element deleted.");
+        });
+
+        document.getElementById('btn-inspect-stepback').addEventListener('click', () => {
+            if (!selectedObject || selectedObject.type !== 'WIRE') return;
+
+            const wire = selectedObject.data;
+            const idx = finishedWires.indexOf(wire);
+            if (idx > -1) finishedWires.splice(idx, 1);
+
+            wire.points.pop();
+            activeWire = wire;
+
+            setSelection(null);
+            setMode('WIRE');
+            renderAllWires();
+            updateArrows();
+            showToast("Resumed wire editing: Click arrows to extend!");
+        });
+
+        document.getElementById('btn-inspect-color').addEventListener('click', () => {
+            if (!selectedObject) return;
+
+            if (selectedObject.type === 'WIRE') {
+                selectedObject.data.color = COLOR_PALETTE[activeColorIndex].hex;
+                renderAllWires();
+                showToast("Updated wire color!");
+            } else if (selectedObject.type === 'COMPONENT' && selectedObject.data.type === 'LED') {
+                selectedObject.data.color = COLOR_PALETTE[activeColorIndex].hex;
+                renderAllComponents();
+                showToast("Updated LED color!");
+            }
+        });
+
+        document.getElementById('btn-clear-all').addEventListener('click', () => {
+            activeWire = null;
+            finishedWires.length = 0;
+            placedComponents.length = 0;
+            setSelection(null);
+            renderAllWires();
+            renderAllComponents();
+            updateArrows();
+            showToast("Canvas cleared!");
+        });
+
+        function updateSummaryBadge() {
+            const badge = document.getElementById('element-count-badge');
+            badge.innerText = `${finishedWires.length} Wires | ${placedComponents.length} Comps`;
+        }
+
+        // --- C CODE GENERATION ---
+        document.getElementById('btn-generate-code').addEventListener('click', () => {
+            const wiresToProcess = [...finishedWires];
+            if (activeWire && activeWire.points.length >= 2) {
+                wiresToProcess.push(activeWire);
+            }
+
+            if (wiresToProcess.length === 0) {
+                showToast("Please create at least one wire first!");
+                return;
+            }
+
+            let code = `/* \n * Automatic Wire Bender Microcontroller Driver Code\n * Generated by 3D Breadboard Circuit Designer\n */\n\n#include "drivers.h"\n\nint main()\n{\n`;
+
+            wiresToProcess.forEach((wire, index) => {
+                code += `    // ====================================\n`;
+                code += `    // Wire #${index + 1} Execution\n`;
+                code += `    // ====================================\n`;
+                code += `    initWire();\n`;
+
+                const points = wire.points;
+                const segments = [];
+
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const dir = new THREE.Vector3().subVectors(p2, p1).round();
+
+                    if (segments.length === 0) {
+                        segments.push({ dir: dir, count: 1 });
+                    } else {
+                        const lastSeg = segments[segments.length - 1];
+                        if (lastSeg.dir.equals(dir)) {
+                            lastSeg.count += 1;
+                        } else {
+                            segments.push({ dir: dir, count: 1 });
+                        }
+                    }
+                }
+
+                segments.forEach((seg, sIdx) => {
+                    const d = seg.dir;
+
+                    if (sIdx > 0) {
+                        if (d.x > 0.5)      code += `    bendWireXP(); // bend +X direction (Right)\n`;
+                        else if (d.x < -0.5) code += `    bendWireXN(); // bend -X direction (Left)\n`;
+                        else if (d.z > 0.5)  code += `    bendWireYP(); // bend +Z direction (Row J)\n`;
+                        else if (d.z < -0.5) code += `    bendWireYN(); // bend -Z direction (Row A)\n`;
+                        else if (d.y > 0.5)  code += `    bendWireUP(); // bend +Y direction (Up)\n`;
+                        else if (d.y < -0.5) code += `    bendWireDN(); // bend -Y direction (Down)\n`;
+                    }
+
+                    code += `    extrudeWire(${seg.count}); // extrude length ${seg.count}\n`;
+                });
+
+                code += `    endWire();\n\n`;
+            });
+
+            code += `    return 0;\n}`;
+
+            document.getElementById('c-code-container').innerText = code;
+            document.getElementById('code-modal').classList.remove('hidden');
+        });
+
+        document.getElementById('btn-close-code-modal').addEventListener('click', () => {
+            document.getElementById('code-modal').classList.add('hidden');
+        });
+
+        document.getElementById('btn-copy-code').addEventListener('click', () => {
+            const codeText = document.getElementById('c-code-container').innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = codeText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast("C Driver code copied to clipboard!");
+        });
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-4');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
+            }, 2600);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            if (selectionBoxHelper) {
+                selectionBoxHelper.update();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
